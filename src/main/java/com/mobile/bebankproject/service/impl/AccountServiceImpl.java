@@ -50,6 +50,8 @@ public class AccountServiceImpl implements AccountService {
 
     private static final int OTP_LENGTH = 6;
     private static final long OTP_VALID_DURATION = 5; // minutes
+    @Autowired
+    private TransactionRepository transactionRepository;
 
     @Override
     public AccountResponse login(String phone, String password) {
@@ -449,14 +451,22 @@ public class AccountServiceImpl implements AccountService {
         toAccount.setBalance(toAccount.getBalance() + amount);
         accountRepository.save(fromAccount);
         accountRepository.save(toAccount);
+        
+        // Create and save transaction
         TransactionFundTransfer transaction = new TransactionFundTransfer();
         transaction.setFromAccount(fromAccountNumber);
         transaction.setToAccount(toAccount);
         transaction.setTransactionDate(LocalDateTime.now());
-        transaction.setDescription(description);
         transaction.setAmount(amount);
         transaction.setStatus(TransactionStatus.SUCCESS);
         transaction.setAccount(fromAccount);
+        
+        // Set description with more details
+        String transactionDescription = String.format("Chuyển tiền đến %s - %s", 
+            toAccount.getAccountNumber(), 
+            description != null && !description.isEmpty() ? description : "Chuyển tiền");
+        transaction.setDescription(transactionDescription);
+        
         transactionFundTransferRepository.save(transaction);
         return true;
     }
@@ -619,5 +629,25 @@ public class AccountServiceImpl implements AccountService {
         return accountRepository.findByAccountNumber(accountNumber)
                 .map(Account::getAccountName)
                 .orElse(null);
+    }
+
+    @Override
+    @Transactional
+    public boolean paymentBill(Bill bill, Integer userId, String pin) {
+        // check thông tin
+        Account account = accountRepository.findByUserId(userId);
+        if(account == null) {
+            throw new RuntimeException("User not found");
+        }
+        if(!account.getPIN().equals(pin)) {
+            throw new RuntimeException("Pin does not match");
+        }
+        if(account.getBalance() < bill.getTotalAmount()) {
+            throw new RuntimeException("Insufficient balance");
+        }
+        // trừ tiền tài khoản
+        account.setBalance(account.getBalance() - bill.getTotalAmount());
+        accountRepository.save(account);
+        return true;
     }
 } 
